@@ -69,12 +69,12 @@ def create_mesh_object(name, verts, faces):
         poly.use_smooth = True
 
 def get_distance_map(chunk_size, world_size, origin=(0, 0)):
-    size = chunk_size * world_size + 1
+    size = chunk_size * world_size + ((world_size-1)//2)%2+1
     half_size = size // 2
 
     # Create coordinate grids
-    x_coords = np.arange(-half_size, size - half_size + 1)
-    y_coords = np.arange(-half_size, size - half_size + 1)
+    x_coords = np.arange(-half_size, size - half_size)
+    y_coords = np.arange(-half_size, size - half_size)
     x_indices, y_indices = np.meshgrid(x_coords, y_coords)
 
     origin_x, origin_y = origin
@@ -120,53 +120,61 @@ def create_terrain():
     # Settings
     chunk_size = 64
     subdivisions = chunk_size - 1
-    int_world_size = 31
+    int_world_size = 3
     world_size = int_world_size * 2 + 1
 
     # Generate noise map
-    plains = get_noise_map(
-        chunk_size,
-        world_size,
-        seed=None,
-        frequency=48,
-        waveLength=8192,
-        range=(-16, 16),
-        octaves=5,
-        persistence=0.5,
-        lacunarity=2
-    )
-    hills = get_noise_map(
-        chunk_size,
-        world_size,
-        seed=None,
-        frequency=24,
-        waveLength=8192,
-        range=(-8, 56),
-        octaves=5,
-        persistence=0.5,
-        lacunarity=2
-    )
-    mountains = get_noise_map(
-        chunk_size,
-        world_size,
-        seed=None,
-        frequency=20,
-        waveLength=8192,
-        range=(0, 384),
-        octaves=6,
-        persistence=0.5,
-        lacunarity=2
-    )
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        plains_future = executor.submit(
+            get_noise_map,
+            chunk_size,
+            world_size,
+            seed=None,
+            frequency=48,
+            waveLength=8192,
+            range=(-16, 16),
+            octaves=5,
+            persistence=0.5,
+            lacunarity=2
+        )
+        hills_future = executor.submit(
+            get_noise_map,
+            chunk_size,
+            world_size,
+            seed=None,
+            frequency=24,
+            waveLength=8192,
+            range=(-8, 56),
+            octaves=5,
+            persistence=0.5,
+            lacunarity=2
+        )
+        mountains_future = executor.submit(
+            get_noise_map,
+            chunk_size,
+            world_size,
+            seed=None,
+            frequency=20,
+            waveLength=8192,
+            range=(0, 384),
+            octaves=6,
+            persistence=0.5,
+            lacunarity=2
+        )
+
+        plains = plains_future.result()
+        hills = hills_future.result()
+        mountains = mountains_future.result()
     t.append(time.time()) #* 2
 
-    def sigmoid(x, a=2, s=0, b=1):
-        return 1 / (1 + a**(-(b*x - b*s)))
+    def sigmoid(x, a=2, s=0, k=1):
+        return 1 / (1 + a**(-(k*x - k*s)))
 
     plains_biome = get_distance_map(chunk_size, world_size, origin=(1, 2))
-    plains_biome = 1 - sigmoid(plains_biome, a=3, s=16*world_size, b=1/world_size)
+    plains_biome = 1 - sigmoid(plains_biome, a=3, s=16*chunk_size, k=1/chunk_size)
 
     hills_biome = get_distance_map(chunk_size, world_size, origin=(-1, 1))
-    hills_biome = 1 - sigmoid(hills_biome, a=1.5, s=32*world_size, b=1/world_size)
+    hills_biome = 1 - sigmoid(hills_biome, a=1.5, s=32*chunk_size, k=1/chunk_size)
 
     mountains_biome = 1 - hills_biome
     hills_biome = hills_biome - plains_biome
