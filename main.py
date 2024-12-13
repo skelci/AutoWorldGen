@@ -11,6 +11,9 @@ def clear_all():
     bpy.ops.object.delete(use_global=False)
     for mesh in bpy.data.meshes:
         bpy.data.meshes.remove(mesh)
+    for material in bpy.data.materials:
+        bpy.data.materials.remove(material)
+    
     bpy.context.view_layer.update()
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
@@ -31,13 +34,37 @@ def add_global_light():
     # Rotate the light to cast shadows appropriately
     light_object.rotation_euler = (math.radians(50), 0, math.radians(30))
 
+def create_blue_sphere(location=(0, 0, 0), radius=1):
+    # Add a UV sphere
+    bpy.ops.mesh.primitive_ico_sphere_add(radius=radius, location=location, subdivisions=2)
+    sphere = bpy.context.active_object
+
+    # Create a blue material
+    if "BlueMaterial" not in bpy.data.materials:
+        material = bpy.data.materials.new(name="BlueMaterial")
+        material.diffuse_color = (0, 0, 1, 1)  # RGBA (Blue color)
+    else:
+        material = bpy.data.materials["BlueMaterial"]
+
+    # Assign the material to the sphere
+    if sphere.data.materials:
+        sphere.data.materials[0] = material
+    else:
+        sphere.data.materials.append(material)
+
+    return sphere
+
+def update_viewport():
+    bpy.context.view_layer.update()
+    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
 def prepare_plane_data(location, size, subdivisions, height_array, biome_influences):
     grid_size = subdivisions + 2
     delta = size / (grid_size - 1)
     half_size = size / 2
 
     # Define colors for each biome
-    plains_color = (0.0, 0.9, 0.0)       # Green
+    plains_color = (0.0, 0.5, 0.0)       # Green
     hills_color = (0.6, 0.3, 0.0)        # Brown
     mountains_color = (0.5, 0.5, 0.5)    # Gray
 
@@ -151,6 +178,72 @@ def create_mesh_object(name, verts, faces, colors):
     else:
         obj.data.materials.append(material)
 
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+def simulate_errosion(noise_map):
+    size = noise_map.shape[0]
+    hsize = size // 2
+    pos = np.array([hsize, hsize]).astype(np.float64)
+
+    velocity = np.array([0.0, 0.0]).astype(np.float64)
+    for i in range(1000):
+        if pos[0] == int(pos[0]): pos[0] += 0.0001
+        if pos[1] == int(pos[1]): pos[1] += 0.0001
+
+        neighbors = np.array([
+            (math.ceil(pos[0]), math.ceil(pos[1])),
+            (math.ceil(pos[0]), math.floor(pos[1])),
+            (math.floor(pos[0]), math.floor(pos[1])),
+            (math.floor(pos[0]), math.ceil(pos[1]))
+        ])
+        
+        grad_x = lerp(
+            noise_map[neighbors[1][1], neighbors[1][0]],
+            noise_map[neighbors[0][1], neighbors[0][0]],
+            abs(pos[1] - int(pos[1]))
+        ) - lerp(
+            noise_map[neighbors[2][1], neighbors[2][0]],
+            noise_map[neighbors[3][1], neighbors[3][0]],
+            abs(pos[1] - int(pos[1]))
+        )
+        
+        grad_y = lerp(
+            noise_map[neighbors[3][1], neighbors[3][0]],
+            noise_map[neighbors[0][1], neighbors[0][0]],
+            abs(pos[0] - int(pos[0]))
+        ) - lerp(
+            noise_map[neighbors[2][1], neighbors[2][0]],
+            noise_map[neighbors[1][1], neighbors[1][0]],
+            abs(pos[0] - int(pos[0]))
+        )
+        
+        gradient = np.array([grad_x, grad_y])
+
+        velocity = 0.96 * velocity - 0.24 * gradient #* Mybe some more adjustments
+
+        pos += velocity
+        print(f"Position: {pos}, Gradient: {gradient}, Velocity: {velocity}")
+
+        distances = np.array([
+            math.sqrt((1 - pos[0] % 1)**2 + (1 - pos[1] % 1)**2),
+            math.sqrt((1 - pos[0] % 1)**2 + (pos[1] % 1)**2),
+            math.sqrt((pos[0] % 1)**2 + (pos[1] % 1)**2),
+            math.sqrt((pos[0] % 1)**2 + (1 - pos[1] % 1)**2)
+        ])
+
+        z_loc = (
+            distances[0] * noise_map[neighbors[0][1], neighbors[0][0]] +
+            distances[1] * noise_map[neighbors[1][1], neighbors[1][0]] +
+            distances[2] * noise_map[neighbors[2][1], neighbors[2][0]] +
+            distances[3] * noise_map[neighbors[3][1], neighbors[3][0]]
+        ) / distances.sum()
+
+        if math.sqrt(velocity[0]**2 + velocity[1]**2) < 0.01 and math.sqrt(gradient[0]**2 + gradient[1]**2) < 0.01: break
+
+        if i % 4 == 0:
+            create_blue_sphere(location=(pos[0] - hsize, pos[1] - hsize, z_loc), radius=0.5)
+
 def create_terrain():
     t = [time.time()]
 
@@ -159,7 +252,7 @@ def create_terrain():
     # Settings
     chunk_size = 64
     subdivisions = chunk_size - 1
-    int_world_size = 31
+    int_world_size = 2
     world_size = int_world_size * 2 + 1
 
     # Generate noise maps
@@ -264,9 +357,10 @@ def create_terrain():
     t.append(time.time())
 
     # Update the viewport
-    bpy.context.view_layer.update()
-    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+    update_viewport()
     t.append(time.time())
+
+    simulate_errosion(noise_map)
 
     for i in range(len(t) - 1):
         print(f"Step {i}: {t[i + 1] - t[i]:.4f} seconds")
