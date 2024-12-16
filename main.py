@@ -6,6 +6,8 @@ import numpy as np
 import concurrent.futures
 import NPerlinNoise as npn
 
+sqrt2 = math.sqrt(2)
+
 def clear_all():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -58,6 +60,24 @@ def update_viewport():
     bpy.context.view_layer.update()
     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
+def get_distance_map(chunk_size, world_size, origin=(0, 0)):
+    size = chunk_size * world_size + ((world_size - 1) // 2) % 2 + 1
+    half_size = size // 2
+
+    x_coords = np.arange(-half_size, size - half_size)
+    y_coords = np.arange(-half_size, size - half_size)
+    x_indices, y_indices = np.meshgrid(x_coords, y_coords)
+
+    origin_x, origin_y = origin
+
+    x_diff = np.abs(x_indices - origin_x * chunk_size)
+    y_diff = np.abs(y_indices - origin_y * chunk_size)
+
+    values = np.sqrt(x_diff ** 2 + y_diff ** 2) * np.sqrt(2)
+
+    modifier_map = values.astype(np.float32)
+    return modifier_map
+
 def prepare_plane_data(location, size, subdivisions, height_array, biome_influences):
     grid_size = subdivisions + 2
     delta = size / (grid_size - 1)
@@ -67,6 +87,8 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
     plains_color = (0.0, 0.5, 0.0)       # Green
     hills_color = (0.6, 0.3, 0.0)        # Brown
     mountains_color = (0.5, 0.5, 0.5)    # Gray
+    river_color = (0.0, 0.0, 1.0)        # Blue
+    sand_color = (1.0, 1.0, 0.0)         # Yellow
 
     verts = []
     colors = []
@@ -81,17 +103,34 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
             plains_influence = biome_influences['plains'][y, x]
             hills_influence = biome_influences['hills'][y, x]
             mountains_influence = biome_influences['mountains'][y, x]
+            river_influence = biome_influences['rivers'][y, x]
+            sand_influence = biome_influences['sand'][y, x]
 
             # Calculate vertex color based on biome influences
-            r = (plains_color[0] * plains_influence +
-                 hills_color[0] * hills_influence +
-                 mountains_color[0] * mountains_influence)
-            g = (plains_color[1] * plains_influence +
-                 hills_color[1] * hills_influence +
-                 mountains_color[1] * mountains_influence)
-            b = (plains_color[2] * plains_influence +
-                 hills_color[2] * hills_influence +
-                 mountains_color[2] * mountains_influence)
+            r = ((
+                plains_color[0] * plains_influence +
+                hills_color[0] * hills_influence +
+                mountains_color[0] * mountains_influence) *
+                (1 - river_influence + sand_influence) +
+                river_color[0] * river_influence +
+                sand_color[0] * sand_influence
+            )
+            g = ((
+                plains_color[1] * plains_influence +
+                hills_color[1] * hills_influence +
+                mountains_color[1] * mountains_influence) *
+                (1 - river_influence + sand_influence) +
+                river_color[1] * river_influence +
+                sand_color[0] * sand_influence
+            )
+            b = ((
+                plains_color[2] * plains_influence +
+                hills_color[2] * hills_influence +
+                mountains_color[2] * mountains_influence) *
+                (1 - river_influence + sand_influence) +
+                river_color[2] * river_influence +
+                sand_color[0] * sand_influence
+            )
 
             color = (r, g, b, 1.0)  # RGBA
             colors.append(color)
@@ -181,68 +220,137 @@ def create_mesh_object(name, verts, faces, colors):
 def lerp(a, b, t):
     return a + (b - a) * t
 
-def simulate_errosion(noise_map):
+def distance(a, b = (0, 0)):
+    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+
+def tetrahedron_volume(A, B, C, D):
+    AB = np.array(B) - np.array(A)
+    AC = np.array(C) - np.array(A)
+    AD = np.array(D) - np.array(A)
+    cross_product = np.cross(AC, AD)
+    dot_product = np.dot(AB, cross_product)
+    volume = abs(dot_product) / 6
+    return volume
+
+def gradient_and_height(noise_map, x, y):
     size = noise_map.shape[0]
     hsize = size // 2
-    pos = np.array([hsize, hsize]).astype(np.float64)
 
-    velocity = np.array([0.0, 0.0]).astype(np.float64)
-    for i in range(1000):
-        if pos[0] == int(pos[0]): pos[0] += 0.0001
-        if pos[1] == int(pos[1]): pos[1] += 0.0001
+    ix = int(np.floor(x))
+    iy = int(np.floor(y))
+    tx = x - ix
+    ty = y - iy
 
-        neighbors = np.array([
-            (math.ceil(pos[0]), math.ceil(pos[1])),
-            (math.ceil(pos[0]), math.floor(pos[1])),
-            (math.floor(pos[0]), math.floor(pos[1])),
-            (math.floor(pos[0]), math.ceil(pos[1]))
-        ])
-        
-        grad_x = lerp(
-            noise_map[neighbors[1][1], neighbors[1][0]],
-            noise_map[neighbors[0][1], neighbors[0][0]],
-            abs(pos[1] - int(pos[1]))
-        ) - lerp(
-            noise_map[neighbors[2][1], neighbors[2][0]],
-            noise_map[neighbors[3][1], neighbors[3][0]],
-            abs(pos[1] - int(pos[1]))
-        )
-        
-        grad_y = lerp(
-            noise_map[neighbors[3][1], neighbors[3][0]],
-            noise_map[neighbors[0][1], neighbors[0][0]],
-            abs(pos[0] - int(pos[0]))
-        ) - lerp(
-            noise_map[neighbors[2][1], neighbors[2][0]],
-            noise_map[neighbors[1][1], neighbors[1][0]],
-            abs(pos[0] - int(pos[0]))
-        )
-        
-        gradient = np.array([grad_x, grad_y])
+    # Heights at the four corners
+    z00 = noise_map[iy, ix]
+    z10 = noise_map[iy, ix + 1]
+    z01 = noise_map[iy + 1, ix]
+    z11 = noise_map[iy + 1, ix + 1]
 
-        velocity = 0.96 * velocity - 0.24 * gradient #* Mybe some more adjustments
+    # Bilinear interpolation to get height at (x, y)
+    z = (
+        z00 * (1 - tx) * (1 - ty) +
+        z10 * tx * (1 - ty) +
+        z01 * (1 - tx) * ty +
+        z11 * tx * ty
+    )
 
-        pos += velocity
-        print(f"Position: {pos}, Gradient: {gradient}, Velocity: {velocity}")
+    # Compute partial derivatives
+    dzdx = (
+        (1 - ty) * (z10 - z00) +
+        ty * (z11 - z01)
+    )
 
-        distances = np.array([
-            math.sqrt((1 - pos[0] % 1)**2 + (1 - pos[1] % 1)**2),
-            math.sqrt((1 - pos[0] % 1)**2 + (pos[1] % 1)**2),
-            math.sqrt((pos[0] % 1)**2 + (pos[1] % 1)**2),
-            math.sqrt((pos[0] % 1)**2 + (1 - pos[1] % 1)**2)
-        ])
+    dzdy = (
+        (1 - tx) * (z01 - z00) +
+        tx * (z11 - z10)
+    )
 
-        z_loc = (
-            distances[0] * noise_map[neighbors[0][1], neighbors[0][0]] +
-            distances[1] * noise_map[neighbors[1][1], neighbors[1][0]] +
-            distances[2] * noise_map[neighbors[2][1], neighbors[2][0]] +
-            distances[3] * noise_map[neighbors[3][1], neighbors[3][0]]
-        ) / distances.sum()
+    gradient = np.array([dzdx, dzdy])
+    return gradient, z
 
-        if math.sqrt(velocity[0]**2 + velocity[1]**2) < 0.01 and math.sqrt(gradient[0]**2 + gradient[1]**2) < 0.01: break
+def simulate_erosion(noise_map_):
+    noise_map = noise_map_.copy()
+    size = noise_map.shape[0]
+    hsize = size // 2
 
-        if i % 4 == 0:
-            create_blue_sphere(location=(pos[0] - hsize, pos[1] - hsize, z_loc), radius=0.5)
+    max_steps = 10000
+    gravity = -0.1
+    erosion_rate = 1
+    min_sediment = 0.01
+    inertia = 0.5
+    sediment_capacity_factor = 4
+    brush_radius = 3
+    evaporate_speed = 0.01
+    droplet_count = 10
+
+    for _ in range(droplet_count):
+        pos = np.array([hsize + 0.5, hsize + 0.5], dtype=np.float64)
+        velocity = 1.0
+        water = 1.0
+        sediment = 0.0
+        dir = np.array([0.0, 0.0], dtype=np.float64)
+
+        for step in range(max_steps):
+            ix, iy = int(np.floor(pos[0])), int(np.floor(pos[1]))
+            tx, ty = pos[0] - ix, pos[1] - iy
+
+            # Get the gradient and height at the current position
+            gradient, z = gradient_and_height(noise_map, pos[0], pos[1])
+
+            # Update the direction
+            dir = (dir * inertia - gradient * (1 - inertia))
+            dir_len = distance(dir)
+            if dir_len != 0:
+                dir /= dir_len
+
+            pos += dir
+
+            # Check if the position is out of bounds or if the direction is too small
+            if pos[0] < 0 or pos[0] > size - 1 or pos[1] < 0 or pos[1] > size - 1 or dir_len < 0.001:
+                break
+
+            # Get the new gradient and height at the new position
+            _, new_z = gradient_and_height(noise_map, pos[0], pos[1])
+            delta_z = new_z - z
+
+            # calculate the sediment capacity
+            sediment_capacity = max(-delta_z * velocity * water * sediment_capacity_factor, min_sediment)
+
+            # If we have more sediment than the capacity or flow is uphill
+            if sediment > sediment_capacity or delta_z > 0:
+                for_deposit = min(sediment, delta_z) if delta_z > 0 else (sediment - sediment_capacity) * erosion_rate
+                sediment -= for_deposit
+
+                noise_map[iy, ix] += for_deposit * (1 - tx) * (1 - ty)
+                noise_map[iy, ix + 1] += for_deposit * tx * (1 - ty)
+                noise_map[iy + 1, ix] += for_deposit * (1 - tx) * ty
+                noise_map[iy + 1, ix + 1] += for_deposit * tx * ty
+            else:
+                for_erode = min((sediment_capacity - sediment) * erosion_rate, -delta_z)
+
+                brush_area = get_distance_map(brush_radius, 1, origin=(tx, ty))
+                brush_area = -np.minimum(1, brush_area)
+                brush_area /= np.sum(brush_area)
+                brush_area = brush_area[:brush_radius, :brush_radius]
+
+                if iy - brush_radius < 0 or iy + brush_radius > size - 1 or ix - brush_radius < 0 or ix + brush_radius > size - 1:
+                    break
+                noise_map[iy - 1:iy + 2, ix - 1:ix + 2] -= brush_area * for_erode
+                print(noise_map[iy - 1:iy + 2, ix - 1:ix + 2].shape, brush_area.shape)
+                sediment += for_erode
+
+            velocity = math.sqrt(velocity ** 2 + gravity * delta_z)
+            water *= (1 - evaporate_speed)
+
+            if velocity < 0.001 and delta_z < 0.001:
+                break
+
+            if step % 16 == 17:
+                create_blue_sphere(location=(pos[0] - hsize, pos[1] - hsize, z), radius=0.5)
+    
+    update_viewport()
+    return noise_map
 
 def create_terrain():
     t = [time.time()]
@@ -251,9 +359,11 @@ def create_terrain():
 
     # Settings
     chunk_size = 64
+    int_world_size = 4
+
     subdivisions = chunk_size - 1
-    int_world_size = 2
     world_size = int_world_size * 2 + 1
+    hsize = world_size // 2
 
     # Generate noise maps
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -310,18 +420,25 @@ def create_terrain():
     mountains_biome = 1 - hills_biome
     hills_biome = hills_biome - plains_biome
 
-    biome_maps = {
-        'plains': plains_biome,
-        'hills': hills_biome,
-        'mountains': mountains_biome
-    }
-
     # Apply biome influences to noise maps
     plains *= plains_biome
     hills *= hills_biome
     mountains *= mountains_biome
 
-    noise_map = plains + hills + mountains
+    noise_map_1 = plains + hills + mountains
+    noise_map = simulate_erosion(noise_map_1)
+
+    river_modifications = np.subtract(noise_map_1, noise_map)
+    river = np.clip(river_modifications, -1, 0)
+    sand = -np.clip(river_modifications, 0, 1)
+    
+    biome_maps = {
+        'plains': plains_biome,
+        'hills': hills_biome,
+        'mountains': mountains_biome,
+        'rivers': river,
+        'sand': sand
+    }
 
     t.append(time.time())
 
@@ -360,31 +477,11 @@ def create_terrain():
     update_viewport()
     t.append(time.time())
 
-    simulate_errosion(noise_map)
-
     for i in range(len(t) - 1):
         print(f"Step {i}: {t[i + 1] - t[i]:.4f} seconds")
 
 def sigmoid(x, a=2, s=0, k=1):
     return 1 / (1 + a ** (-(k * x - k * s)))
-
-def get_distance_map(chunk_size, world_size, origin=(0, 0)):
-    size = chunk_size * world_size + ((world_size - 1) // 2) % 2 + 1
-    half_size = size // 2
-
-    x_coords = np.arange(-half_size, size - half_size)
-    y_coords = np.arange(-half_size, size - half_size)
-    x_indices, y_indices = np.meshgrid(x_coords, y_coords)
-
-    origin_x, origin_y = origin
-
-    x_diff = np.abs(x_indices - origin_x * chunk_size)
-    y_diff = np.abs(y_indices - origin_y * chunk_size)
-
-    values = np.sqrt(x_diff ** 2 + y_diff ** 2) * np.sqrt(2)
-
-    modifier_map = values.astype(np.float32)
-    return modifier_map
 
 def get_noise_map(chunk_size, world_size, seed=None, frequency=8, waveLength=128, range=(-0.5, 0.5), octaves=8, persistence=0.5, lacunarity=2):
     size = chunk_size * world_size + 1
