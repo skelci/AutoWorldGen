@@ -327,7 +327,7 @@ def simulate_droplet(map, pos_start, params, noise_map_lock):
                 map[iy - 1:iy + 2, ix - 1:ix + 2] -= brush_area * for_erode
             sediment += for_erode
 
-        velocity = math.sqrt(velocity ** 2 + gravity * delta_z)
+        velocity = math.sqrt(max(velocity ** 2 + gravity * delta_z, 0))
         water *= (1 - evaporate_speed)
 
         if velocity < 0.001 and delta_z < 0.001:
