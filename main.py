@@ -3,6 +3,7 @@ import sys
 import math
 import time
 import numpy as np
+import random as rnd
 import concurrent.futures
 import NPerlinNoise as npn
 
@@ -111,7 +112,7 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
                 plains_color[0] * plains_influence +
                 hills_color[0] * hills_influence +
                 mountains_color[0] * mountains_influence) *
-                (1 - river_influence + sand_influence) +
+                (1 - river_influence - sand_influence) +
                 river_color[0] * river_influence +
                 sand_color[0] * sand_influence
             )
@@ -119,7 +120,7 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
                 plains_color[1] * plains_influence +
                 hills_color[1] * hills_influence +
                 mountains_color[1] * mountains_influence) *
-                (1 - river_influence + sand_influence) +
+                (1 - river_influence - sand_influence) +
                 river_color[1] * river_influence +
                 sand_color[0] * sand_influence
             )
@@ -127,7 +128,7 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
                 plains_color[2] * plains_influence +
                 hills_color[2] * hills_influence +
                 mountains_color[2] * mountains_influence) *
-                (1 - river_influence + sand_influence) +
+                (1 - river_influence - sand_influence) +
                 river_color[2] * river_influence +
                 sand_color[0] * sand_influence
             )
@@ -272,26 +273,29 @@ def gradient_and_height(noise_map, x, y):
 def simulate_erosion(noise_map_):
     noise_map = noise_map_.copy()
     size = noise_map.shape[0]
-    hsize = size // 2
 
-    max_steps = 10000
+    max_steps = 100
+    droplet_count = int(size ** 2 * 1.5)
     gravity = -0.1
-    erosion_rate = 1
+    erosion_rate = 0.1
     min_sediment = 0.01
-    inertia = 0.5
+    inertia = 0.25
     sediment_capacity_factor = 4
     brush_radius = 3
     evaporate_speed = 0.01
-    droplet_count = 10
 
-    for _ in range(droplet_count):
-        pos = np.array([hsize + 0.5, hsize + 0.5], dtype=np.float64)
+    for droplet_id in range(droplet_count):
+        pos = np.array([rnd.randint(1, size - 2), rnd.randint(1, size - 2)], dtype=np.float64)
         velocity = 1.0
         water = 1.0
         sediment = 0.0
         dir = np.array([0.0, 0.0], dtype=np.float64)
 
+        if droplet_id % 4096 == 0:
+            print(f"Simulating droplet {droplet_id}/{droplet_count}")
+
         for step in range(max_steps):
+
             ix, iy = int(np.floor(pos[0])), int(np.floor(pos[1]))
             tx, ty = pos[0] - ix, pos[1] - iy
 
@@ -337,33 +341,31 @@ def simulate_erosion(noise_map_):
                 if iy - brush_radius < 0 or iy + brush_radius > size - 1 or ix - brush_radius < 0 or ix + brush_radius > size - 1:
                     break
                 noise_map[iy - 1:iy + 2, ix - 1:ix + 2] -= brush_area * for_erode
-                print(noise_map[iy - 1:iy + 2, ix - 1:ix + 2].shape, brush_area.shape)
                 sediment += for_erode
 
-            velocity = math.sqrt(velocity ** 2 + gravity * delta_z)
+            velocity = math.sqrt(abs(velocity ** 2 + gravity * delta_z))
             water *= (1 - evaporate_speed)
 
-            if velocity < 0.001 and delta_z < 0.001:
+            if velocity < 0.0001 and delta_z < 0.0001:
                 break
-
-            if step % 16 == 17:
-                create_blue_sphere(location=(pos[0] - hsize, pos[1] - hsize, z), radius=0.5)
     
-    update_viewport()
     return noise_map
 
-def create_terrain():
-    t = [time.time()]
+def timeit(t, name):
+    t_now = time.time()
+    print(f"{name}{'_' * max(0, 48 - len(name))}: {t_now - t:.4f} seconds")
+    return t_now
 
-    t.append(time.time())
+def create_terrain():
+    t = time.time()
+    t = timeit(t, "Start")
 
     # Settings
     chunk_size = 64
-    int_world_size = 4
+    int_world_size = 0
 
     subdivisions = chunk_size - 1
     world_size = int_world_size * 2 + 1
-    hsize = world_size // 2
 
     # Generate noise maps
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -408,7 +410,7 @@ def create_terrain():
         hills = hills_future.result()
         mountains = mountains_future.result()
 
-    t.append(time.time())
+    t = timeit(t, "Generate noise maps")
 
     # Generate biome influence maps
     plains_biome = get_distance_map(chunk_size, world_size, origin=(1, 2))
@@ -425,12 +427,18 @@ def create_terrain():
     hills *= hills_biome
     mountains *= mountains_biome
 
-    noise_map_1 = plains + hills + mountains
-    noise_map = simulate_erosion(noise_map_1)
+    noise_map_before = plains + hills + mountains
 
-    river_modifications = np.subtract(noise_map_1, noise_map)
-    river = np.clip(river_modifications, -1, 0)
-    sand = -np.clip(river_modifications, 0, 1)
+    t = timeit(t, "Generate biome influence maps")
+
+    noise_map = simulate_erosion(noise_map_before)
+
+    t = timeit(t, "Erosion simulation")
+
+    river_modifications = noise_map_before - noise_map
+    max, min = abs(np.max(river_modifications)), abs(np.min(river_modifications))
+    river = np.clip(river_modifications / min, -1, 0)
+    sand = -np.clip(river_modifications / max, 0, 1)
     
     biome_maps = {
         'plains': plains_biome,
@@ -440,7 +448,7 @@ def create_terrain():
         'sand': sand
     }
 
-    t.append(time.time())
+    t = timeit(t, "Set biome maps and river/sand maps")
 
     # Prepare chunk coordinates
     chunk_coords = [
@@ -449,7 +457,8 @@ def create_terrain():
         for y in range(-int_world_size, int_world_size + 1)
         if math.ceil(math.sqrt(x ** 2 + y ** 2) - 0.75) <= int_world_size
     ]
-    t.append(time.time())
+    
+    t = timeit(t, "Prepare chunk coordinates")
 
     # Function to prepare data for a chunk
     def prepare_chunk_data(coords):
@@ -465,20 +474,18 @@ def create_terrain():
     with concurrent.futures.ThreadPoolExecutor() as executor:
         mesh_data_list = list(executor.map(prepare_chunk_data, chunk_coords))
 
-    t.append(time.time())
+    t = timeit(t, "Prepare chunk data")
 
     # Create meshes
     for name, verts, faces, colors in mesh_data_list:
         create_mesh_object(name, verts, faces, colors)
 
-    t.append(time.time())
+    t = timeit(t, "Create meshes")
 
     # Update the viewport
     update_viewport()
-    t.append(time.time())
-
-    for i in range(len(t) - 1):
-        print(f"Step {i}: {t[i + 1] - t[i]:.4f} seconds")
+    
+    t = timeit(t, "Update viewport")
 
 def sigmoid(x, a=2, s=0, k=1):
     return 1 / (1 + a ** (-(k * x - k * s)))
@@ -518,6 +525,8 @@ def get_chunk_heights(x_chunk, y_chunk, size, subdivisions, map):
     return map[y_start:y_end, x_start:x_end]
 
 if __name__ == '__main__':
+    print()
     clear_all()
     add_global_light()
     create_terrain()
+    print()
