@@ -92,7 +92,7 @@ def prepare_plane_data(location, size, subdivisions, height_array, biome_influen
     plains_color = (0.0, 0.5, 0.0)       # Green
     hills_color = (0.6, 0.3, 0.0)        # Brown
     mountains_color = (0.4, 0.4, 0.4)    # Gray
-    river_color = (0.7, 0.7, 0.7)        # Gray
+    river_color = (0.6, 0.6, 0.6)        # Gray
     sand_color = (1.0, 1.0, 0.0)         # Yellow
 
     verts = []
