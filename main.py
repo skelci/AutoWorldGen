@@ -528,7 +528,7 @@ def create_terrain():
     river_modifications = noise_map_before - noise_map
     max_val, min_val = abs(np.max(river_modifications)), abs(np.min(river_modifications))
     min_val, max_val = max(min_val, 1e-3), max(max_val, 1e-3)
-    river = np.clip(river_modifications / min_val, -1, 0) + 1
+    river = 1 - (np.clip(river_modifications / min_val, -1, 0) + 1)
     sand = np.clip(river_modifications / max_val, 0, 1)
     
     biome_maps = {
