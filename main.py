@@ -334,11 +334,9 @@ def simulate_droplet(map, pos_start, params, noise_map_lock):
             break
 
 def simulate_droplet_wrapper(noise_map, pos_start, params, noise_map_lock, active_positions, active_positions_lock):
-    try:
-        simulate_droplet(noise_map, pos_start, params, noise_map_lock)
-    finally:
-        with active_positions_lock:
-            active_positions.remove(tuple(pos_start))
+    simulate_droplet(noise_map, pos_start, params, noise_map_lock)
+    with active_positions_lock:
+        active_positions.remove(tuple(pos_start))
 
 def simulate_erosion(noise_map_):
     noise_map = noise_map_.copy()
@@ -358,9 +356,6 @@ def simulate_erosion(noise_map_):
     droplet_count = int(size ** 2 * droplets_per_m2)
     max_distance = params['max_steps'] + params['brush_radius']
 
-    # Generate all starting positions
-    start_positions = [np.array([rnd.randint(1, size - 2), rnd.randint(1, size - 2)], dtype=np.float32) for _ in range(droplet_count)]
-
     active_positions = set()
     active_positions_lock = threading.Lock()
     noise_map_lock = threading.Lock()
@@ -373,7 +368,9 @@ def simulate_erosion(noise_map_):
 
     # Initialize ThreadPoolExecutor
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-        for i, pos_start in enumerate(start_positions):
+        for i in range(droplet_count):
+            pos_start = np.array([rnd.randint(1, size - 2), rnd.randint(1, size - 2)], dtype=np.float32)
+
             # Print some progress info
             if i % 1000 == 0:
                 t_now = time.time()
@@ -452,7 +449,7 @@ def create_terrain():
 
     # Settings
     chunk_size = 64
-    int_world_size = 0
+    int_world_size = 1
 
     subdivisions = chunk_size - 1
     world_size = int_world_size * 2 + 1
@@ -525,10 +522,9 @@ def create_terrain():
 
     t = timeit(t, "Erosion simulation")
 
-    river_modifications = noise_map_before - noise_map
-    max_val, min_val = abs(np.max(river_modifications)), abs(np.min(river_modifications))
-    min_val, max_val = max(min_val, 1e-3), max(max_val, 1e-3)
-    river = 1 - (np.clip(river_modifications / min_val, -1, 0) + 1)
+    river_modifications = noise_map - noise_map_before
+    min_val, max_val = np.min(river_modifications), np.max(river_modifications)
+    river = 1 - (np.clip(river_modifications / -min_val, -1, 0) + 1)
     sand = np.clip(river_modifications / max_val, 0, 1)
     
     biome_maps = {
