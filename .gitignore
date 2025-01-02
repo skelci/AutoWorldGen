@@ -1,0 +1,9 @@
+.vs/
+.vsconfig
+Binaries/
+Build/
+Content/__ExternalActors__/
+Intermediate/
+AutoWorldGen.sln
+Packaged/
+Saved/
