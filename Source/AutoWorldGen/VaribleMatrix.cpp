@@ -228,27 +228,28 @@ namespace VaribleMatrix
         const uint16 Cols = x[0].Num();
 
         // Precompute constants outside the loops
-        const double NegativeK = -k;
-        const double ExponentOffset = NegativeK * s;
-        const double LogA = FMath::Loge(a);
+        const double _k = -1 / k;
+		const double ks = s; // k * s * 1 / k
 
         VMatrix Result;
         Result.SetNum(Rows);
-
+		for (uint16 i = 0; i < 50; ++i)
+		{	
+		    UE_LOG(LogTemp, Warning, TEXT("x_=%f, a=%f, _k=%f, ks=%f"), x[i][i], a, _k, ks);
+		}
         for (uint16 i = 0; i < Rows; ++i)
         {
             Result[i].SetNumUninitialized(Cols);
             for (uint16 j = 0; j < Cols; ++j)
             {
-                // Compute the exponent
-                const double Exponent = NegativeK * x[i][j] + ExponentOffset;
-
-                // Use FMath::Exp to compute a^(Exponent) more efficiently
-                const double Power = FMath::Exp(Exponent * LogA);
-
-                // Compute the result element
-                Result[i][j] = 1.0 / (1.0 + Power);
+				const double x_ = x[i][j];
+				const double result = 1 / (1 + FMath::Pow(a, _k * x_ + ks));
+				Result[i][j] = result;
             }
+        }
+        for (uint16 i = 0; i < 50; ++i)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("result=%f"), Result[i][i]);
         }
 
         return Result;

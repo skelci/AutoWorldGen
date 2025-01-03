@@ -14,15 +14,11 @@ AAutoWorldGenCore::AAutoWorldGenCore()
 	PrimaryActorTick.bCanEverTick = false;
 
 	bAutoGenerate = false;
-	ChunkSize = 128;
-	ChunksFromCenter = 2;
-	TileSize = 100;
+	WorldSize = 512;
+	TileSize = 128;
 	Biomes = TArray<FBiome>();
 
-	WorldSize = (ChunksFromCenter * 2 + 1) * ChunkSize;
-
-	CurrentChunkSize = 0;
-	CurrentChunksFromCenter = 0;
+	CurrentWorldSize = 0;
 	CurrentTileSize = 0;
 	CurrentBiomes = TArray<FBiome>();
 
@@ -48,27 +44,21 @@ void AAutoWorldGenCore::OnConstruction(const FTransform& Transform)
 
 bool AAutoWorldGenCore::bIsChanged()
 {
-    if (ChunkSize == CurrentChunkSize &&
-        ChunksFromCenter == CurrentChunksFromCenter &&
+	if (WorldSize == CurrentWorldSize &&
         TileSize == CurrentTileSize &&
         Biomes == CurrentBiomes)
     {
         return false;
     }
 
-    if (ChunkSize == 0 ||
-        TileSize == 0 ||
-        Biomes.Num() == 0)
+    if (Biomes.Num() == 0)
     {
         return false;
     }
 
-    CurrentChunkSize = ChunkSize;
-    CurrentChunksFromCenter = ChunksFromCenter;
+	CurrentWorldSize = WorldSize;
     CurrentTileSize = TileSize;
     CurrentBiomes = Biomes;
-
-	WorldSize = (ChunksFromCenter * 2 + 1) * ChunkSize;
 
 	return true;
 }
@@ -86,10 +76,10 @@ VMatrix AAutoWorldGenCore::GenerateTerrainNoiseMap()
             WorldSize,
             Biome.Range,
             Biome.Seed,
-            Biome.Frequency,
             Biome.Octaves,
             Biome.Persistence,
-            Biome.Lacunarity
+            Biome.Lacunarity,
+			Biome.NoiseScale
         );
     }
 
@@ -100,7 +90,7 @@ VMatrix AAutoWorldGenCore::GenerateTerrainNoiseMap()
         const FBiome& Biome = Biomes[i];
         BiomeDistances[i] = GetDistancesFromCenter(
             WorldSize,
-            Biome.Origin
+			FVector2D(Biome.Origin.X + WorldSize / 2, Biome.Origin.Y + WorldSize / 2)
         );
 
         BiomeDistances[i] = Subtract(1, Fade(BiomeDistances[i], Biome.a, Biome.s, Biome.k));
@@ -162,6 +152,10 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
     // Calculate the number of components
     const int32 NumComponentsX = FMath::CeilToInt(static_cast<float>(TotalCols - 1) / ComponentSizeQuads);
     const int32 NumComponentsY = FMath::CeilToInt(static_cast<float>(TotalRows - 1) / ComponentSizeQuads);
+    
+    const int32 Size = NumComponentsX * ComponentSizeQuads - 1;
+	const int32 HalfSize = Size / 2;
+    const FVector2D LandscapeLocation = FVector2D(-HalfSize * Scale);
 
     // Ensure heightmap size matches required size
     const int32 HeightmapSizeX = NumComponentsX * ComponentSizeQuads + 1;
@@ -169,7 +163,7 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
 
     // Create the main Landscape Actor
     GeneratedLandscape = GetWorld()->SpawnActor<ALandscape>();
-    GeneratedLandscape->SetActorLocation(FVector::ZeroVector);
+    GeneratedLandscape->SetActorLocation(FVector(LandscapeLocation.X, LandscapeLocation.Y, 0));
     GeneratedLandscape->SetActorScale3D(FVector(Scale));
 
     // Prepare height data
@@ -214,9 +208,10 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
     // Call the Import method
     GeneratedLandscape->Import(
         LandscapeGuid,
-        0, 0,
-        NumComponentsX * ComponentSizeQuads - 1,
-        NumComponentsY * ComponentSizeQuads - 1,
+        0,
+        0,
+        Size,
+        Size,
         SectionsPerComponent,
         QuadsPerSection,
         HeightMapData,
@@ -230,18 +225,30 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
 #endif
 }
 
-
 VMatrix AAutoWorldGenCore::GetNoiseMap(
     const uint16 Size,
     const FVector2D Range,
-    const int32 Seed,
-    const double Frequency,
+    int32 Seed,
     const uint8 Octaves,
     const double Persistence,
-    const double Lacunarity)
+    const double Lacunarity,
+    const double NoiseScale)
 {
     VMatrix NoiseMap;
     NoiseMap.SetNum(Size);
+
+	float MaxNoiseHeight = 0.0f;
+	TArray<FVector2D> OctaveOffsets;
+	OctaveOffsets.SetNum(Octaves);
+	for (uint8 o = 0; o < Octaves; ++o)
+	{
+		MaxNoiseHeight += FMath::Pow(Persistence, o);
+        
+        FRandomStream RandomStream(Seed++);
+        float OffsetX = RandomStream.FRandRange(-100000.0f, 100000.0f);
+        float OffsetY = RandomStream.FRandRange(-100000.0f, 100000.0f);
+		OctaveOffsets[o] = FVector2D(OffsetX, OffsetY);
+	}
 
     // Loop through each point in the noise map
     for (uint16 y = 0; y < Size; ++y)
@@ -250,15 +257,15 @@ VMatrix AAutoWorldGenCore::GetNoiseMap(
         for (uint16 x = 0; x < Size; ++x)
         {
             float Amplitude = 1.0f;
-            float FrequencyAcc = Frequency;
+            float FrequencyAcc = 1.0f;
             float NoiseHeight = 0.0f;
 
             // Apply multiple octaves
             for (uint8 o = 0; o < Octaves; ++o)
             {
                 // Generate sample points
-                float SampleX = (x + Seed) * FrequencyAcc / Size;
-                float SampleY = (y + Seed) * FrequencyAcc / Size;
+                float SampleX = x * FrequencyAcc * NoiseScale + OctaveOffsets[o].X;
+                float SampleY = y * FrequencyAcc * NoiseScale + OctaveOffsets[o].Y;
 
                 // Get Perlin noise value (returns value in range [-1, 1])
                 float PerlinValue = FMath::PerlinNoise2D(FVector2D(SampleX, SampleY)) * Amplitude;
@@ -273,7 +280,8 @@ VMatrix AAutoWorldGenCore::GetNoiseMap(
             float NormalizedHeight = FMath::GetMappedRangeValueClamped(
                 FVector2D(-1.0f, 1.0f),
                 Range,
-                NoiseHeight / Octaves);
+				NoiseHeight / MaxNoiseHeight
+            );
 
             NoiseMap[y][x] = NormalizedHeight;
         }

@@ -21,22 +21,22 @@ public:
 	FString Name = "Biome";
 						  
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	FVector2D Range = FVector2D(-1.0, 1.0);  
+	FVector2D Range = FVector2D(-16.0, 16.0);  
 						  
 	UPROPERTY(EditAnywhere, Category = "Noise")
 	int32 Seed = 0;			  
 						  
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	double Frequency = 1;	  
-						  
-	UPROPERTY(EditAnywhere, Category = "Noise")
 	uint8 Octaves = 1; 
 						  
-	UPROPERTY(EditAnywhere, Category = "Noise")
+	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
 	double Persistence = 0.5;	  
 						  
-	UPROPERTY(EditAnywhere, Category = "Noise")
-	double Lacunarity = 0.5;
+	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
+	double Lacunarity = 2;
+
+	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0.00000000001"))
+	double NoiseScale = 0.1;
 
 	UPROPERTY(EditAnywhere, Category = "Fade")
 	double a = 2;
@@ -55,10 +55,10 @@ public:
 		return Range == Other.Range
 			&& Origin == Other.Origin
 			&& Seed == Other.Seed
-			&& FMath::IsNearlyEqual(Frequency, Other.Frequency)
 			&& Octaves == Other.Octaves
 			&& FMath::IsNearlyEqual(Persistence, Other.Persistence)
 			&& FMath::IsNearlyEqual(Lacunarity, Other.Lacunarity)
+			&& FMath::IsNearlyEqual(NoiseScale, Other.NoiseScale)
 			&& FMath::IsNearlyEqual(a, Other.a)
 			&& FMath::IsNearlyEqual(s, Other.s)
 			&& FMath::IsNearlyEqual(k, Other.k);
@@ -79,23 +79,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
 	bool bAutoGenerate;
 
-	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
-	uint8 ChunkSize;
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "64"))
+	uint16 WorldSize;
 
-	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
-	uint8 ChunksFromCenter;
-
-	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "4"))
 	uint8 TileSize;
 
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
 	TArray<FBiome> Biomes;
 
 private:
-	uint16 WorldSize;
-
-	uint8 CurrentChunkSize;
-	uint8 CurrentChunksFromCenter;
+	uint16 CurrentWorldSize;
 	uint8 CurrentTileSize;
 	TArray<FBiome> CurrentBiomes;
 
@@ -111,11 +105,11 @@ private:
 	VMatrix GetNoiseMap(
 		const uint16 Size,
 		const FVector2D Range,
-		const int32 Seed,
-		const double Frequency,
+		int32 Seed,
 		const uint8 Octaves,
 		const double Persistence,
-		const double Lacunarity
+		const double Lacunarity,
+		const double Scale
 	);
 
 	VMatrix GetDistancesFromCenter(const uint16 Size, FVector2D Origin);
