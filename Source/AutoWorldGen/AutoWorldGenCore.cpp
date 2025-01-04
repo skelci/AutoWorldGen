@@ -293,7 +293,7 @@ void AAutoWorldGenCore::CreateLandscape(const VMatrix& Heights)
     {
         for (int32 x = 0; x < HeightmapSizeX; x++)
         {
-            float HeightValue = Heights[y][x];
+            float HeightValue = Heights[y][x] - 256;
             const uint16 HeightUint16 = FMath::Clamp(static_cast<int32>(HeightValue * 128.0f + 32768.0f), 0, 65535);
             HeightData[y * HeightmapSizeX + x] = HeightUint16;
         }
