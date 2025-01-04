@@ -79,6 +79,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
 	bool bAutoGenerate;
 
+	// This will override the WorldSize, SectionsPerComponent, and QuadsPerSection
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
+	bool bOptimalWorldSize;
+
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "64"))
 	uint16 WorldSize;
 
@@ -100,7 +104,7 @@ private:
 
 	VMatrix GenerateTerrainNoiseMap();
 
-	void CreateChunksFromHeights(const VMatrix& Heights);
+	void CreateLandscape(const VMatrix& Heights);
 
 	VMatrix GetNoiseMap(
 		const uint16 Size,

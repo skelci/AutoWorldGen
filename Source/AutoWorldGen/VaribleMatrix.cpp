@@ -233,10 +233,7 @@ namespace VaribleMatrix
 
         VMatrix Result;
         Result.SetNum(Rows);
-		for (uint16 i = 0; i < 50; ++i)
-		{	
-		    UE_LOG(LogTemp, Warning, TEXT("x_=%f, a=%f, _k=%f, ks=%f"), x[i][i], a, _k, ks);
-		}
+
         for (uint16 i = 0; i < Rows; ++i)
         {
             Result[i].SetNumUninitialized(Cols);
@@ -246,10 +243,6 @@ namespace VaribleMatrix
 				const double result = 1 / (1 + FMath::Pow(a, _k * x_ + ks));
 				Result[i][j] = result;
             }
-        }
-        for (uint16 i = 0; i < 50; ++i)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("result=%f"), Result[i][i]);
         }
 
         return Result;

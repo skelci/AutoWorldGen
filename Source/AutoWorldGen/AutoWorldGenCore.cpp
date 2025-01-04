@@ -14,6 +14,7 @@ AAutoWorldGenCore::AAutoWorldGenCore()
 	PrimaryActorTick.bCanEverTick = false;
 
 	bAutoGenerate = false;
+	bOptimalWorldSize = false;
 	WorldSize = 512;
 	TileSize = 128;
 	Biomes = TArray<FBiome>();
@@ -32,6 +33,11 @@ void AAutoWorldGenCore::OnConstruction(const FTransform& Transform)
         return;
     }
 
+    if (bOptimalWorldSize)
+    {
+		WorldSize = 8129;
+    }
+
 	if (!bIsChanged())
 	{
 		return;
@@ -39,7 +45,7 @@ void AAutoWorldGenCore::OnConstruction(const FTransform& Transform)
 
 	VMatrix Heights = GenerateTerrainNoiseMap();
 
-	CreateChunksFromHeights(Heights);
+	CreateLandscape(Heights);
 }
 
 bool AAutoWorldGenCore::bIsChanged()
@@ -102,7 +108,7 @@ VMatrix AAutoWorldGenCore::GenerateTerrainNoiseMap()
     }
     for (int8 i = BiomeNum - 2; i > 0; i--)
     {
-        BiomeDistances[i] = Subtract(1, BiomeDistances[i - 1]);
+        BiomeDistances[i] = Subtract(BiomeDistances[i], BiomeDistances[i - 1]);
     }
 
     for (uint8 i = 0; i < BiomeNum; i++)
@@ -119,7 +125,7 @@ VMatrix AAutoWorldGenCore::GenerateTerrainNoiseMap()
 	return Heights;
 }
 
-void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
+void AAutoWorldGenCore::CreateLandscape(const VMatrix& Heights)
 {
 #if WITH_EDITOR
     // Delete existing landscape if it exists  
@@ -144,16 +150,26 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
     }
 
     // Parameters for landscape
+	int32 QuadsPerSection;
+	int32 SectionsPerComponent;
+	if (bOptimalWorldSize)
+	{
+		QuadsPerSection = 127;
+		SectionsPerComponent = 2; // 2x2
+	}
+    else
+	{
+		QuadsPerSection = 63;
+		SectionsPerComponent = 1;
+	}
     const float Scale = TileSize;
-    const int32 QuadsPerSection = 63;
-    const int32 SectionsPerComponent = 1;
     const int32 ComponentSizeQuads = QuadsPerSection * SectionsPerComponent;
 
     // Calculate the number of components
-    const int32 NumComponentsX = FMath::CeilToInt(static_cast<float>(TotalCols - 1) / ComponentSizeQuads);
-    const int32 NumComponentsY = FMath::CeilToInt(static_cast<float>(TotalRows - 1) / ComponentSizeQuads);
+    const int32 NumComponentsX = FMath::FloorToInt(static_cast<float>(TotalCols - 1) / ComponentSizeQuads);
+    const int32 NumComponentsY = FMath::FloorToInt(static_cast<float>(TotalRows - 1) / ComponentSizeQuads);
     
-    const int32 Size = NumComponentsX * ComponentSizeQuads - 1;
+    const int32 Size = NumComponentsX * ComponentSizeQuads;
 	const int32 HalfSize = Size / 2;
     const FVector2D LandscapeLocation = FVector2D(-HalfSize * Scale);
 
@@ -170,16 +186,12 @@ void AAutoWorldGenCore::CreateChunksFromHeights(const VMatrix& Heights)
     TArray<uint16> HeightData;
     HeightData.SetNumZeroed(HeightmapSizeX * HeightmapSizeY);
 
-    for (int32 y = 0; y < HeightmapSizeY; ++y)
+    for (int32 y = 0; y < HeightmapSizeY; y++)
     {
-        for (int32 x = 0; x < HeightmapSizeX; ++x)
+        for (int32 x = 0; x < HeightmapSizeX; x++)
         {
-            uint16 HeightUint16 = 32768; // Default flat height
-            if (y < TotalRows && x < TotalCols)
-            {
-                float HeightValue = Heights[y][x];
-                HeightUint16 = FMath::Clamp(static_cast<int32>(HeightValue * 128.0f + 32768.0f), 0, 65535);
-            }
+            float HeightValue = Heights[y][x];
+            const uint16 HeightUint16 = FMath::Clamp(static_cast<int32>(HeightValue * 128.0f + 32768.0f), 0, 65535);
             HeightData[y * HeightmapSizeX + x] = HeightUint16;
         }
     }
