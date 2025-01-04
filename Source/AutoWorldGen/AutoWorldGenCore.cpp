@@ -13,6 +13,9 @@ AAutoWorldGenCore::AAutoWorldGenCore()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
+	bSaveBiomes = false;
+	bLoadBiomes = false;
+
 	bAutoGenerate = false;
 	bOptimalWorldSize = false;
 	WorldSize = 512;
@@ -28,6 +31,17 @@ AAutoWorldGenCore::AAutoWorldGenCore()
 
 void AAutoWorldGenCore::OnConstruction(const FTransform& Transform)
 {
+	if (bSaveBiomes)
+	{
+		bSaveBiomes = false;
+		SaveBiomesToJson(FPaths::ProjectContentDir() + TEXT("Biomes.json"));
+	}
+    if (bLoadBiomes)
+    {
+        bLoadBiomes = false;
+		LoadBiomesFromJson(FPaths::ProjectContentDir() + TEXT("Biomes.json"));
+    }
+
     if (!bAutoGenerate)
     {
         return;
@@ -46,6 +60,95 @@ void AAutoWorldGenCore::OnConstruction(const FTransform& Transform)
 	VMatrix Heights = GenerateTerrainNoiseMap();
 
 	CreateLandscape(Heights);
+}
+
+bool AAutoWorldGenCore::SaveBiomesToJson(const FString& FilePath)
+{
+    TSharedPtr<FJsonObject> RootObject = MakeShareable(new FJsonObject);
+
+    TArray<TSharedPtr<FJsonValue>> BiomeArray;
+    for (const FBiome& Biome : Biomes)
+    {
+        TSharedPtr<FJsonObject> BiomeObject = MakeShareable(new FJsonObject);
+
+        // Serialize Biome properties
+        BiomeObject->SetStringField(TEXT("Name"), Biome.Name);
+        BiomeObject->SetNumberField(TEXT("RangeX"), Biome.Range.X);
+        BiomeObject->SetNumberField(TEXT("RangeY"), Biome.Range.Y);
+        BiomeObject->SetNumberField(TEXT("Seed"), Biome.Seed);
+        BiomeObject->SetNumberField(TEXT("Octaves"), Biome.Octaves);
+        BiomeObject->SetNumberField(TEXT("Persistence"), Biome.Persistence);
+        BiomeObject->SetNumberField(TEXT("Lacunarity"), Biome.Lacunarity);
+        BiomeObject->SetNumberField(TEXT("NoiseScale"), Biome.NoiseScale);
+        BiomeObject->SetNumberField(TEXT("a"), Biome.a);
+        BiomeObject->SetNumberField(TEXT("s"), Biome.s);
+        BiomeObject->SetNumberField(TEXT("k"), Biome.k);
+        BiomeObject->SetNumberField(TEXT("OriginX"), Biome.Origin.X);
+        BiomeObject->SetNumberField(TEXT("OriginY"), Biome.Origin.Y);
+
+        // Add BiomeObject to BiomeArray
+        BiomeArray.Add(MakeShareable(new FJsonValueObject(BiomeObject)));
+    }
+
+    RootObject->SetArrayField(TEXT("Biomes"), BiomeArray);
+
+    // Serialize RootObject to a JSON formatted string
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    if (FJsonSerializer::Serialize(RootObject.ToSharedRef(), Writer))
+    {
+        // Save JSON string to file
+        return FFileHelper::SaveStringToFile(OutputString, *FilePath);
+    }
+
+    return false;
+}
+
+bool AAutoWorldGenCore::LoadBiomesFromJson(const FString& FilePath)
+{
+    FString JsonString;
+    if (!FFileHelper::LoadFileToString(JsonString, *FilePath))
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> RootObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+
+    if (FJsonSerializer::Deserialize(Reader, RootObject) && RootObject.IsValid())
+    {
+        TArray<TSharedPtr<FJsonValue>> BiomeArray = RootObject->GetArrayField(TEXT("Biomes"));
+        Biomes.Empty();
+        for (TSharedPtr<FJsonValue> Value : BiomeArray)
+        {
+            TSharedPtr<FJsonObject> BiomeObject = Value->AsObject();
+            if (BiomeObject.IsValid())
+            {
+                FBiome Biome;
+
+                // Deserialize Biome properties
+                Biome.Name = BiomeObject->GetStringField(TEXT("Name"));
+                Biome.Range.X = BiomeObject->GetNumberField(TEXT("RangeX"));
+                Biome.Range.Y = BiomeObject->GetNumberField(TEXT("RangeY"));
+                Biome.Seed = (int32)BiomeObject->GetNumberField(TEXT("Seed"));
+                Biome.Octaves = (uint8)BiomeObject->GetNumberField(TEXT("Octaves"));
+                Biome.Persistence = BiomeObject->GetNumberField(TEXT("Persistence"));
+                Biome.Lacunarity = BiomeObject->GetNumberField(TEXT("Lacunarity"));
+                Biome.NoiseScale = BiomeObject->GetNumberField(TEXT("NoiseScale"));
+                Biome.a = BiomeObject->GetNumberField(TEXT("a"));
+                Biome.s = BiomeObject->GetNumberField(TEXT("s"));
+                Biome.k = BiomeObject->GetNumberField(TEXT("k"));
+                Biome.Origin.X = BiomeObject->GetNumberField(TEXT("OriginX"));
+                Biome.Origin.Y = BiomeObject->GetNumberField(TEXT("OriginY"));
+
+                Biomes.Add(Biome);
+            }
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 bool AAutoWorldGenCore::bIsChanged()
@@ -171,7 +274,7 @@ void AAutoWorldGenCore::CreateLandscape(const VMatrix& Heights)
     
     const int32 Size = NumComponentsX * ComponentSizeQuads;
 	const int32 HalfSize = Size / 2;
-    const FVector2D LandscapeLocation = FVector2D(-HalfSize * Scale);
+    const FVector2D LandscapeLocation = FVector2D::ZeroVector;
 
     // Ensure heightmap size matches required size
     const int32 HeightmapSizeX = NumComponentsX * ComponentSizeQuads + 1;
@@ -220,10 +323,10 @@ void AAutoWorldGenCore::CreateLandscape(const VMatrix& Heights)
     // Call the Import method
     GeneratedLandscape->Import(
         LandscapeGuid,
-        0,
-        0,
-        Size,
-        Size,
+        -HalfSize,
+        -HalfSize,
+        Size - HalfSize,
+        Size - HalfSize,
         SectionsPerComponent,
         QuadsPerSection,
         HeightMapData,

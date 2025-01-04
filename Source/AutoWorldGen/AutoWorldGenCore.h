@@ -6,6 +6,9 @@
 #include "VaribleMatrix.h"
 #include "GameFramework/Actor.h"
 #include "Landscape.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Misc/FileHelper.h"
 
 #include "AutoWorldGenCore.generated.h"
 
@@ -27,16 +30,18 @@ public:
 	int32 Seed = 0;			  
 						  
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	uint8 Octaves = 1; 
-						  
+	uint8 Octaves = 2; 
+	
+	// Persistence is the rate at which the amplitude diminishes for each successive octave
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
 	double Persistence = 0.5;	  
-						  
+	
+	// Lacunarity is the rate at which the frequency increases for each successive octave
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
 	double Lacunarity = 2;
 
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0.00000000001"))
-	double NoiseScale = 0.1;
+	double NoiseScale = 0.01;
 
 	UPROPERTY(EditAnywhere, Category = "Fade")
 	double a = 2;
@@ -77,6 +82,12 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
+	bool bSaveBiomes;
+
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
+	bool bLoadBiomes;
+
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
 	bool bAutoGenerate;
 
 	// This will override the WorldSize, SectionsPerComponent, and QuadsPerSection
@@ -86,11 +97,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "64"))
 	uint16 WorldSize;
 
-	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "4"))
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen", meta = (ClampMin = "1"))
 	uint8 TileSize;
 
-	UPROPERTY(EditAnywhere, Category = "AutoWorldGen")
+	UPROPERTY(EditAnywhere, Category = "AutoWorldGen|Biomes")
 	TArray<FBiome> Biomes;
+
+	UFUNCTION(BlueprintCallable, Category = "AutoWorldGen|Biomes")
+	bool SaveBiomesToJson(const FString& FilePath);
+
+	UFUNCTION(BlueprintCallable, Category = "AutoWorldGen|Biomes")
+	bool LoadBiomesFromJson(const FString& FilePath);
 
 private:
 	uint16 CurrentWorldSize;

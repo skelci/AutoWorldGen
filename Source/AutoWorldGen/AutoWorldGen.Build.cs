@@ -17,7 +17,9 @@ public class AutoWorldGen : ModuleRules
             "Landscape",
 			"AssetTools",
 			"UnrealEd",
-			"EditorScriptingUtilities"
-		});
+			"EditorScriptingUtilities",
+			"Json",
+            "JsonUtilities"
+        });
 	}
 }
