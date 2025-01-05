@@ -22,20 +22,26 @@ struct FBiome
 public:
 	UPROPERTY(EditAnywhere)
 	FString Name = "Biome";
-						  
+
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	FVector2D Range = FVector2D(-16.0, 16.0);  
-						  
+	bool bGradientDetailReduction = false;
+
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	int32 Seed = 0;			  
-						  
+	double GradientDetailReductionSpeed = 1;
+
 	UPROPERTY(EditAnywhere, Category = "Noise")
-	uint8 Octaves = 2; 
-	
+	FVector2D Range = FVector2D(-16.0, 16.0);
+
+	UPROPERTY(EditAnywhere, Category = "Noise")
+	int32 Seed = 0;
+
+	UPROPERTY(EditAnywhere, Category = "Noise")
+	uint8 Octaves = 2;
+
 	// Persistence is the rate at which the amplitude diminishes for each successive octave
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
-	double Persistence = 0.5;	  
-	
+	double Persistence = 0.5;
+
 	// Lacunarity is the rate at which the frequency increases for each successive octave
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0"))
 	double Lacunarity = 2;
@@ -58,6 +64,8 @@ public:
 	bool operator==(const FBiome& Other) const
 	{
 		return Range == Other.Range
+			&& bGradientDetailReduction == Other.bGradientDetailReduction
+			&& FMath::IsNearlyEqual(GradientDetailReductionSpeed, Other.GradientDetailReductionSpeed)
 			&& Origin == Other.Origin
 			&& Seed == Other.Seed
 			&& Octaves == Other.Octaves
@@ -74,8 +82,8 @@ UCLASS()
 class AUTOWORLDGEN_API AAutoWorldGenCore : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	// Sets default values for this actor's properties
 	AAutoWorldGenCore();
 
@@ -124,6 +132,8 @@ private:
 	void CreateLandscape(const VMatrix& Heights);
 
 	VMatrix GetNoiseMap(
+		const bool bGradientDetailReduction,
+		const double GradientDetailReductionSpeed,
 		const uint16 Size,
 		const FVector2D Range,
 		int32 Seed,
